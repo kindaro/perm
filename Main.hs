@@ -6,6 +6,7 @@ import Numeric
 import System.IO 
 import Data.List
 import Data.Maybe
+import Data.Char
 
 
 data FiniteCyclicGroup = Member { i :: Integer, n :: Integer } deriving (Ord)
@@ -24,7 +25,7 @@ instance Eq (FiniteCyclicGroup) where
 
         (==) member_A member_B
             | n member_A == n member_B = i member_A == i member_B
-            | otherwise = undefined 
+            -- | otherwise = undefined 
 
 instance Show (FiniteCyclicGroup) where
     
@@ -35,11 +36,11 @@ instance Num (FiniteCyclicGroup) where
 
         (+) x y
             | n x == n y     =  makeMember (i x + i y) (n x)
-            | otherwise      =  undefined
+            -- | otherwise      =  undefined
 
         (*) x y
             | n x == n y     =  Member (i x * i y) (n x)
-            | otherwise      =  undefined
+            -- | otherwise      =  undefined
 
         abs x                =  x
 
@@ -47,7 +48,7 @@ instance Num (FiniteCyclicGroup) where
 
         fromInteger integer
             | integer > 0    =  Member 1 integer
-            | otherwise      =  undefined
+            -- | otherwise      =  undefined
 
         negate x             =  makeMember (n x - i x) (n x)
 
@@ -137,19 +138,20 @@ sliceR start end ring = makeMarkedRing $ take (start `to` end) $ value $ startFr
 newtype P = P FiniteCyclicGroup
 
 instance Show P where
-    show (P x) = showHex (i x) ""
+    show (P x) = [mapIntToChar (fromIntegral $ i x)]
 
-
-nD = 2  -- The number of dials.
-frag = 3  -- The number of points in each dial.
-step = frag - 1  -- The step to take from a position in one dial to the same position in the next.
+frag, nD, nPoints :: Integer
+frag = 17  -- The number of points in each dial.
+step = fromIntegral $ frag - 1  -- The step to take from a position in one dial to the same position in the next.
+nD = fromIntegral $ min (length keys) ((length symbols) `quot` (fromIntegral step)) - 1 -- The number of dials.
+-- nD = 3
 nPoints = nD * step  -- The number of points in the daisy chain in total.
 
 rootPoint dx = inc $ (dx * step) /// nPoints  -- The first point in every dial is called a root.
 endPoint dx = rootPoint (dx + 1)  -- The end point of a dial is the same as the root of the next one.
 
 
-daisyChain  =  makeMarkedRing $ take (fromIntegral nPoints) [ i | i <- ['1'..'9'] ++ ['a'..'z'] ]
+daisyChain  =  makeMarkedRing $ take (fromIntegral nPoints) [ i | i <- symbols ]
 
 final = value $ mutate daisyChain 1
 
@@ -186,11 +188,14 @@ knobs = [ makeKnob (rootPoint i) (endPoint i) | i <- [0..nD-1] ]
 -- d4 (a1,a2,a3, a4,a5,a6, a7,a8,a9, aA,aB,aC) = (aC,a2,a3, a4,a5,a6, a7,a8,a9, a1,aA,aB)
 
 
-mapCharToInt c = elemIndex c $ take (length knobs) "qwerasdfzxcvtyuighjkbnm,"
+keys = "qwerasdfzxcvtyuighjkbnm,"
+symbols = map chr [33..126]
+mapCharToInt c = elemIndex c $ take (length knobs) keys
+mapIntToChar i = symbols !! i
 
 turn knob = shiftSubRing (start knob) (end knob) (1 /// (start knob `to` end knob))
 
-main = hSetEcho stdin False >> putStrLn (value daisyChain) >> (mutateIO daisyChain)
+main = hSetEcho stdin False >> hSetBuffering stdin NoBuffering >> putStrLn (value daisyChain) >> (mutateIO daisyChain)
 
 mutateIO s 
     | value s == final

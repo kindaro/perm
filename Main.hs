@@ -2,6 +2,10 @@ module Main where
 
 
 import Control.Exception
+import Numeric
+import System.IO 
+import Data.List
+import Data.Maybe
 
 
 data FiniteCyclicGroup = Member { i :: Integer, n :: Integer } deriving (Ord)
@@ -60,42 +64,121 @@ instance Integral (FiniteCyclicGroup) where
 
         toInteger member
             | i member <= n member  =  i member
-            | otherwise             =  i member `rem` n member
+            -- | otherwise             =  i member `rem` n member
 
         quotRem member_A member_B
             | n member_A == n member_B = (Member ((toInteger member_A) `quot` (toInteger member_B)) (n member_A), Member ((toInteger member_A) `rem` (toInteger member_B)) (n member_A))
-            | otherwise = undefined
+            -- | otherwise = undefined
 
-(+++) :: FiniteCyclicGroup -> FiniteCyclicGroup
-(+++) member = (makeMember (toInteger member + 1)) (n member)
+(///) = makeMember
 
+inc, dec :: FiniteCyclicGroup -> FiniteCyclicGroup
+inc m = m + 1 /// (n m)
 
-nD, frag :: Integer
-nD = 4  -- The number of dials.
-frag = 4  -- The number of points in each dial.
-step = frag - 1  -- The step to take from a position in one dial to the same position in the next.
-nPoints = nD * step  -- The number of points in the daisy chain in total.
+dec m = m - 1 /// (n m)
 
-rootPoint dx = dx * step  -- The first point in every dial is called a root.
-endPoint dx = rootPoint (dx + 1)  -- The end point of a dial is the same as the root of the next one.
-
-
-daisyChain  =  [ makeMember i nPoints | i <- [1..nPoints] ]
+to :: (Integral a) => FiniteCyclicGroup -> FiniteCyclicGroup -> a
+to start end = fromIntegral $ inc $ end - start
 
 slice :: [a] -> FiniteCyclicGroup -> FiniteCyclicGroup -> [a]
-slice list start end
+slice list start end  -- Start and end points included.
         | toInteger (length list) == n start && toInteger (length list) == n end
             =  slice' list start end
         | otherwise  =  undefined
 
     where
-        to :: FiniteCyclicGroup -> FiniteCyclicGroup -> Int
-        to start end = fromIntegral (i end - i start + 1)
-        slice' list start end
-            -- | start `to` end < 1  =  drop (i start - 1) list ++ take (i end) list
-            -- | otherwise  =  take drop (i start - 1)
 
-            -- = take (start `to` end) (drop (start `to` end) list ++ take (start `to` end) list)
+        slice' list start end
+            = take
+                (start `to` end)
+                (drop (fromIntegral start - 1) list ++ take (fromIntegral start - 1) list)
+
+
+data MarkedRing a = MarkedRing
+        { value :: [a]
+        , mark :: FiniteCyclicGroup
+        }
+    deriving (Eq,Ord,Show)
+
+makeMarkedRing list
+        = MarkedRing list (1///l)
+    where l = fromIntegral $ length list
+
+isCanonical ring
+        | i (mark ring) == 1 = True
+        | otherwise = False
+
+shiftList :: Integer -> [a] -> [a]
+shiftList clicks list
+        = drop c list ++ take c list
+    where
+        l = fromIntegral $ length list
+        c = fromIntegral $ i (clicks /// l)
+
+shift :: FiniteCyclicGroup -> MarkedRing a -> MarkedRing a
+shift clicks ring = MarkedRing
+                        (shiftList (i clicks) $ value ring)
+                        (mark ring - clicks)
+
+canonicalize :: MarkedRing a -> MarkedRing a
+canonicalize ring
+        = shift (dec $ mark ring) ring
+
+(+++) :: MarkedRing a -> MarkedRing a -> MarkedRing a
+(+++) x y = makeMarkedRing (value x ++ value y)
+
+startFrom :: FiniteCyclicGroup -> MarkedRing a -> MarkedRing a
+startFrom start ring =
+        assert ( (n start) == (n $ mark ring) ) $ shift (dec start) ring
+
+sliceR :: FiniteCyclicGroup -> FiniteCyclicGroup -> MarkedRing a -> MarkedRing a
+sliceR start end ring = makeMarkedRing $ take (start `to` end) $ value $ startFrom start ring
+
+newtype P = P FiniteCyclicGroup
+
+instance Show P where
+    show (P x) = showHex (i x) ""
+
+
+nD = 2  -- The number of dials.
+frag = 3  -- The number of points in each dial.
+step = frag - 1  -- The step to take from a position in one dial to the same position in the next.
+nPoints = nD * step  -- The number of points in the daisy chain in total.
+
+rootPoint dx = inc $ (dx * step) /// nPoints  -- The first point in every dial is called a root.
+endPoint dx = rootPoint (dx + 1)  -- The end point of a dial is the same as the root of the next one.
+
+
+daisyChain  =  makeMarkedRing $ take (fromIntegral nPoints) [ i | i <- ['1'..'9'] ++ ['a'..'z'] ]
+
+final = value $ mutate daisyChain 1
+
+
+-- dialSub dial list
+--     | n dial == fromInteger . length list
+--         = slice list (rootPoint dial) (endPoint dial)
+--     | otherwise = undefined
+
+-- turnDial dial clicks list = turnSub (rootPoint dial) (endPoint dial) clicks list
+-- 
+-- turnSubRing :: FiniteCyclicGroup -> FiniteCyclicGroup ->
+--                     FiniteCyclicGroup -> MarkedRing -> MarkedRing
+-- 
+
+shiftSubRing :: FiniteCyclicGroup -> FiniteCyclicGroup ->
+                    FiniteCyclicGroup -> MarkedRing a -> MarkedRing a
+shiftSubRing start end clicks ring
+    = assert (l == (n clicks))
+        canonicalize $ MarkedRing (value $ (shift clicks $ sliceR (1///l') (l///l') r) +++ (sliceR (inc $ l///l') (0///l') r)) (mark r)
+            where 
+            l = start `to` end
+            l' = n $ mark ring
+            r = shift (dec start) ring
+
+data Knob = Knob { start :: FiniteCyclicGroup, end :: FiniteCyclicGroup } deriving (Eq, Show)
+makeKnob start end = assert (n start == n end) Knob start end
+knobs = [ makeKnob (rootPoint i) (endPoint i) | i <- [0..nD-1] ]
+
 
 -- d1 (a1,a2,a3, a4,a5,a6, a7,a8,a9, aA,aB,aC) = (a4,a1,a2, a3,a5,a6, a7,a8,a9, aA,aB,aC)
 -- d2 (a1,a2,a3, a4,a5,a6, a7,a8,a9, aA,aB,aC) = (a1,a2,a3, a7,a4,a5, a6,a8,a9, aA,aB,aC)
@@ -103,8 +186,26 @@ slice list start end
 -- d4 (a1,a2,a3, a4,a5,a6, a7,a8,a9, aA,aB,aC) = (aC,a2,a3, a4,a5,a6, a7,a8,a9, a1,aA,aB)
 
 
+mapCharToInt c = elemIndex c $ take (length knobs) "qwerasdfzxcvtyuighjkbnm,"
 
+turn knob = shiftSubRing (start knob) (end knob) (1 /// (start knob `to` end knob))
 
+main = hSetEcho stdin False >> putStrLn (value daisyChain) >> (mutateIO daisyChain)
+
+mutateIO s 
+    | value s == final
+        = putStrLn "You won dear friend."
+    | otherwise = getChar >>= mutateIO' s >>= \x -> (putStrLn ( value x ) >> mutateIO x)
+
+mutateIO' s c
+    | fromEnum c == 27  -- Escape
+        = undefined
+    | isJust $ mapCharToInt c
+        = return (mutate s (fromJust $ mapCharToInt c))
+    | otherwise
+        = return s
+
+mutate daisyChainInstance knobID = turn (knobs !! fromIntegral knobID) daisyChainInstance
 --
 
 -- There are some nD dials. Each has frag fragments. Every two dials share one point position.
